@@ -5,6 +5,6 @@ RUN cd plugins && wget -O FeatureJ_.jar https://imagescience.org/meijering/softw
 
 ADD NucleiSegmentation-ImageJ.ijm /fiji/macros/NucleiSegmentation-ImageJ.ijm                                           
 ADD run-segment-clustered-nuclei.sh /fiji/run-segment-clustered-nuclei.sh
-RUN chmod a+x /fiji/run-segment-clustered-nuclei.sh
+RUN cd /fiji && chmod a+x run-segment-clustered-nuclei.sh
 
-ENTRYPOINT ["/bin/sh", "/fiji/run-segment-clustered-nuclei.sh"]
+ENTRYPOINT ["/bin/sh", "run-segment-clustered-nuclei.sh"]
