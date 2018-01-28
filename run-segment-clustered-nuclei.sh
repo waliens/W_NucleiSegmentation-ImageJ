@@ -1,6 +1,6 @@
 # Run the metrics-macro in ImageJ headlessly using Xvfb to avoid errors due to ImageJ1 gui dependencies.
 
-export DISPLAY=:1
+export DISPLAY=:2
 Xvfb $DISPLAY -auth /dev/null &
 (
 # the '(' starts a new sub shell. In this sub shell we start the worker processes:
