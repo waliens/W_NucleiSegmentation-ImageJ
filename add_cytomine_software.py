@@ -11,7 +11,7 @@ id_project=my-project-id
 #Connection to Cytomine Core
 conn = cytomine.Cytomine(cytomine_host, cytomine_public_key, cytomine_private_key, base_path = '/api/', working_path = '/tmp/', verbose= True)
  
-execute_command = "python algo/ij_segment_clustered_nuclei/NucleiSegmentation-ImageJ-wrapper.py --ij_radius $ij_radius --ij_threshold $ij_threshold " + "--cytomine_host $host " + "--cytomine_public_key $publicKey " +"--cytomine_private_key $privateKey " + "--cytomine_id_project $cytomine_id_project "
+execute_command = "python algo/ij_segment_clustered_nuclei/wrapper.py --ij_radius $ij_radius --ij_threshold $ij_threshold " + "--cytomine_host $host " + "--cytomine_public_key $publicKey " +"--cytomine_private_key $privateKey " + "--cytomine_id_project $cytomine_id_project "
 
 #define software parameter template
 software = conn.add_software("IJSegmentClusteredNuclei", "createRabbitJobWithArgsService","ValidateAnnotation", execute_command)
