@@ -112,15 +112,6 @@ job = conn.update_job_status(job, status = job.RUNNING, progress = 25, status_co
 command = "docker run --rm -v "+jobFolder+":/fiji/data neubiaswg5/nucleisegmentation-imagej " + shArgs
 call(command,shell=True)	# waits for the subprocess to return
 
-# remove existing annotations if any
-for image in inputImages:
-	annotations = conn.get_annotations(id_image=image.id)
-        for annotation in annotations:
-            conn.delete_annotation(annotation.id)
-
-files = os.listdir(outDir)
-
-
 job = conn.update_job_status(job, status = job.RUNNING, progress = 40, status_comment = "Extracting polygons...")
 
 for image in inputImages:
