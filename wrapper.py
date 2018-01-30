@@ -27,6 +27,18 @@ def _upload_annotation(cytomine, img_inst, polygon, label=None, proba=1.0):
         cytomine.save(annotation_term)
     return annotation
 
+def download_images(images, destDir):
+	# download the images
+	for image in images:
+		# url format: CYTOMINEURL/api/imageinstance/$idOfMyImageInstance/download
+		url = cytomine_host+"/api/imageinstance/" + str(image.id) + "/download"
+		filename = str(image.id) + ".tif"
+		conn.fetch_url_into_file(url, destDir+"/"+filename, True, True) 
+
+def remove_label(filename, label):
+	result = filename.replace(label, '')
+	return result
+
 baseOutputFolder = "/dockershare/";
 
 parser = ArgumentParser(prog="IJSegmentClusteredNuclei.py", description="ImageJ workflow to segment clustered nuclei")
@@ -66,17 +78,21 @@ images = image_instances.data()
 
 inputImages = []
 masks = []
+fileIDs = {}
 for image in images:
 	if "_lbl." in image.filename:
 		masks.append(image)
 	else:
 		inputImages.append(image)
+		head, tail = os.path.split(image.filename)
+		fileIDs[tail] = image.id
 
 # create the folder structure for the folders shared with docker 
 jobFolder = baseOutputFolder + str(job.id) + "/"
 #jobFolder = baseOutputFolder + str(job) + "/"
 inDir = jobFolder + "in"
 outDir = jobFolder + "out"
+groundTruthDir = jobFolder + "ground_truth"
 
 if not os.path.exists(inDir):
     os.makedirs(inDir)
@@ -84,12 +100,11 @@ if not os.path.exists(inDir):
 if not os.path.exists(outDir):
     os.makedirs(outDir)
 
+if not os.path.exists(groundTruthDir):
+    os.makedirs(groundTruthDir)
+
 # download the images
-for image in inputImages:
-	# url format: CYTOMINEURL/api/imageinstance/$idOfMyImageInstance/download
-	url = cytomine_host+"/api/imageinstance/" + str(image.id) + "/download"
-	filename = str(image.id) + ".tif"
-	conn.fetch_url_into_file(url, inDir+"/"+filename, True, True) 
+download_images(inputImages, inDir)
 
 # call the image analysis workflow in the docker image
 shArgs = "data/in data/out "+radius+" "+threshold + ""
@@ -106,7 +121,7 @@ for image in inputImages:
 files = os.listdir(outDir)
 
 
-job = conn.update_job_status(job, status = job.RUNNING, progress = 50, status_comment = "Extracting polygons...")
+job = conn.update_job_status(job, status = job.RUNNING, progress = 40, status_comment = "Extracting polygons...")
 
 for image in inputImages:
 	file = str(image.id) + ".tif"
@@ -137,15 +152,23 @@ for image in inputImages:
 	        if annotation:
 			conn.add_annotation_property(annotation.id, "index", str(index))
 	
-job = conn.update_job_status(job, status = job.TERMINATED, progress = 90, status_comment =  "Cleaning up..")
+job = conn.update_job_status(job, status = job.TERMINATED, progress = 50, status_comment =  "Cleaning up..")
 
-# cleanup - remove the downloaded images and the images created by the workflow
+# cleanup - remove the downloaded images 
 
 for image in inputImages:
 	file = str(image.id) + ".tif"
-	path = outDir + "/" + file
-	os.remove(path);
 	path = inDir + "/" + file
 	os.remove(path);
+
+job = conn.update_job_status(job, status = job.TERMINATED, progress = 60, status_comment =  "Downloading ground truth data..")
+
+# download ground truth data
+for image in masks:
+	url = arguments.cytomine_host+"/api/imageinstance/" + str(image.id) + "/download"
+	inputImageFilename = remove_label(image.filename, "_lbl")
+	head, tail = os.path.split(inputImageFilename)
+	filename = str(fileIDs[tail]) + ".tif"
+	conn.fetch_url_into_file(url, groundTruthDir+"/"+filename, True, True)
 
 job = conn.update_job_status(job, status = job.TERMINATED, progress = 100, status_comment =  "Finished Job..")
