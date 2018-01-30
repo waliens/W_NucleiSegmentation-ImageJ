@@ -61,6 +61,17 @@ image_instances.project  =  id_project
 image_instances  =  conn.fetch(image_instances)
 images = image_instances.data()
 
+# split the list of all images into a list of input images and 
+# a list of mask images representing the ground truth data.
+
+inputImages = []
+masks = []
+for image in images:
+	if "_lbl." in image.filename:
+		masks.append(image)
+	else:
+		inputImages.append(image)
+
 # create the folder structure for the folders shared with docker 
 jobFolder = baseOutputFolder + str(job.id) + "/"
 #jobFolder = baseOutputFolder + str(job) + "/"
@@ -74,10 +85,8 @@ if not os.path.exists(outDir):
     os.makedirs(outDir)
 
 # download the images
-for image in images:
+for image in inputImages:
 	# url format: CYTOMINEURL/api/imageinstance/$idOfMyImageInstance/download
-	if "_lbl." in image.filename:
-		continue
 	url = cytomine_host+"/api/imageinstance/" + str(image.id) + "/download"
 	filename = str(image.id) + ".tif"
 	conn.fetch_url_into_file(url, inDir+"/"+filename, True, True) 
@@ -89,7 +98,7 @@ command = "docker run --rm -v "+jobFolder+":/fiji/data neubiaswg5/nucleisegmenta
 call(command,shell=True)	# waits for the subprocess to return
 
 # remove existing annotations if any
-for image in images:
+for image in inputImages:
 	annotations = conn.get_annotations(id_image=image.id)
         for annotation in annotations:
             conn.delete_annotation(annotation.id)
@@ -99,7 +108,7 @@ files = os.listdir(outDir)
 
 job = conn.update_job_status(job, status = job.RUNNING, progress = 50, status_comment = "Extracting polygons...")
 
-for image in images:
+for image in inputImages:
 	file = str(image.id) + ".tif"
 	path = outDir + "/" + file
 	imageData = io.imread(path)
@@ -132,7 +141,7 @@ job = conn.update_job_status(job, status = job.TERMINATED, progress = 90, status
 
 # cleanup - remove the downloaded images and the images created by the workflow
 
-for image in images:
+for image in inputImages:
 	file = str(image.id) + ".tif"
 	path = outDir + "/" + file
 	os.remove(path);
