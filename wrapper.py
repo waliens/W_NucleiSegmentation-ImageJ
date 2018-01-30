@@ -76,6 +76,8 @@ if not os.path.exists(outDir):
 # download the images
 for image in images:
 	# url format: CYTOMINEURL/api/imageinstance/$idOfMyImageInstance/download
+	if "_lbl." in image.filename:
+		continue
 	url = cytomine_host+"/api/imageinstance/" + str(image.id) + "/download"
 	filename = str(image.id) + ".tif"
 	conn.fetch_url_into_file(url, inDir+"/"+filename, True, True) 
