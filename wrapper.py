@@ -1,21 +1,24 @@
-import sys
+import logging
 import os
-from cytomine import Cytomine
-from cytomine.models import *
-from subprocess import call
-from skimage import io
-import numpy as np
-from sldc import locator
-from sldc.locator import affine_transform
-from shapely.ops import cascaded_union
+import sys
 from argparse import ArgumentParser
+from subprocess import call
 
-def _upload_annotation(cytomine, img_inst, polygon, label=None, proba=1.0):
+import numpy as np
+from cytomine import CytomineJob
+from cytomine.models import Annotation, AnnotationTerm, Job, ImageInstanceCollection, Property
+from shapely.ops import cascaded_union
+from shapely.affinity import affine_transform
+from skimage import io
+from sldc import locator
+
+
+def add_annotation(img_inst, polygon, label=None, proba=1.0):
     image_id = img_inst.id
     # Transform in cartesian coordinates
-    polygon = affine_transform(xx_coef=1, xy_coef=0, yx_coef=0, yy_coef=-1, delta_y=img_inst.height)(polygon)
+    polygon = affine_transform(polygon, [1, 0, 0, -1, 0, img_inst.height])
 
-    annotation = cytomine.add_annotation(polygon.wkt, image_id)
+    annotation = Annotation(polygon.wkt, image_id).save()
     if label is not None and annotation is not None:
         annotation_term = AnnotationTerm()
         annotation_term.annotation = annotation.id
@@ -24,142 +27,95 @@ def _upload_annotation(cytomine, img_inst, polygon, label=None, proba=1.0):
         annotation_term.term = label
         annotation_term.expectedTerm = label
         annotation_term.rate = proba
-        cytomine.save(annotation_term)
+        annotation_term.save()
     return annotation
 
-def download_images(images, destDir):
-	# download the images
-	for image in images:
-		# url format: CYTOMINEURL/api/imageinstance/$idOfMyImageInstance/download
-		url = cytomine_host+"/api/imageinstance/" + str(image.id) + "/download"
-		filename = str(image.id) + ".tif"
-		conn.fetch_url_into_file(url, destDir+"/"+filename, True, True) 
 
-def remove_label(filename, label):
-	result = filename.replace(label, '')
-	return result
+def makedirs(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
 
-baseOutputFolder = "/dockershare/";
 
-parser = ArgumentParser(prog="IJSegmentClusteredNuclei.py", description="ImageJ workflow to segment clustered nuclei")
-parser.add_argument('--cytomine_host', dest="cytomine_host", default='http://localhost-core')
-parser.add_argument('--cytomine_public_key', dest="cytomine_public_key", default="77af7d84-b737-4489-8864-d5ad93f4700b")
-parser.add_argument('--cytomine_private_key', dest="cytomine_private_key", default="3ef1f34e-2a9e-4ff8-96ec-df8e57c7dfcd")
-parser.add_argument("--cytomine_id_project", dest="cytomine_id_project", default="5378")
+parser = ArgumentParser(prog="IJSegmentClusteredNuclei", description="ImageJ workflow to segment clustered nuclei")
+parser.add_argument('--cytomine_host', dest="cytomine_host", required=True)
+parser.add_argument('--cytomine_public_key', dest="cytomine_public_key", required=True)
+parser.add_argument('--cytomine_private_key', dest="cytomine_private_key", required=True)
+parser.add_argument('--cytomine_id_project', dest="cytomine_id_project", required=True)
+parser.add_argument('--cytomine_id_software', dest="cytomine_id_software", required=True)
 parser.add_argument("--ij_radius,", dest="radius", default="5")
 parser.add_argument('--ij_threshold', dest="threshold", default="-0.5")
-arguments, others = parser.parse_known_args(sys.argv)
-radius = arguments.radius
-threshold = arguments.threshold
+params, others = parser.parse_known_args(sys.argv)
 
-#Cytomine connection parameters
-cytomine_host=arguments.cytomine_host
+base_path = "/dockershare/"
+gt_suffix = "_lbl"
 
-id_project=arguments.cytomine_id_project
+with CytomineJob(params.cytomine_host, params.cytomine_public_key, params.cytomine_private_key,
+                 params.cytomine_id_software, params.cytomine_id_project, verbose=logging.INFO) as cj:
+    cj.job.update(status=Job.RUNNING, progress=0, statusComment="Initialisation...")
 
-conn = Cytomine(arguments.cytomine_host, arguments.cytomine_public_key, arguments.cytomine_private_key, base_path = '/api/', working_path = '/tmp/', verbose= True)
+    working_path = os.path.join(base_path, str(cj.job.id))
+    in_path = os.path.join(working_path, "in")
+    makedirs(in_path)
+    out_path = os.path.join(working_path, "out")
+    makedirs(out_path)
+    gt_path = os.path.join(working_path, "ground_truth")
+    makedirs(gt_path)
 
-current_user = conn.get_current_user()
-user_job = current_user
+    cj.job.update(progress=1, statusComment="Downloading images...")
+    image_instances = ImageInstanceCollection().fetch_with_filter("project", params.cytomine_id_project)
+    input_images = [i for i in image_instances if gt_suffix not in i.originalFilename]
+    gt_images = [i for i in image_instances if gt_suffix in i.originalFilename]
 
-job = conn.get_job(user_job.job)
-# job=666
+    for input_image in input_images:
+        input_image.download(os.path.join(in_path, "{id}.tif"))
 
-job = conn.update_job_status(job, status = job.RUNNING, progress = 0, status_comment = "Loading images...")
+    for gt_image in gt_images:
+        related_name = gt_image.originalFilename.replace(gt_suffix, '')
+        related_image = [i for i in input_images if related_name == i.originalFilename]
+        if len(related_image) == 1:
+            gt_image.download(os.path.join(gt_path, "{}.tif".format(related_image[0].id)))
 
-# Get the list of images in the project
-image_instances = ImageInstanceCollection()
-image_instances.project  =  id_project
-image_instances  =  conn.fetch(image_instances)
-images = image_instances.data()
+    # call the image analysis workflow in the docker image
+    cj.job.update(progress=25, statusComment="Launching workflow...")
+    command = "docker run --rm -v {}:/fiji/data neubiaswg5/nucleisegmentation-imagej data/in data/out {} {}".format(
+        working_path, params.radius, params.threshold)
+    call(command, shell=True)  # waits for the subprocess to return
 
-# split the list of all images into a list of input images and 
-# a list of mask images representing the ground truth data.
+    cj.job.update(progress=60, statusComment="Extracting polygons...")
 
-inputImages = []
-masks = []
-fileIDs = {}
-for image in images:
-	if "_lbl." in image.filename:
-		masks.append(image)
-	else:
-		inputImages.append(image)
-		head, tail = os.path.split(image.filename)
-		fileIDs[tail] = image.id
+    for image in input_images:
+        file = "{}.tif".format(image.id)
+        path = os.path.join(out_path, file)
 
-# create the folder structure for the folders shared with docker 
-jobFolder = baseOutputFolder + str(job.id) + "/"
-#jobFolder = baseOutputFolder + str(job) + "/"
-inDir = jobFolder + "in"
-outDir = jobFolder + "out"
-groundTruthDir = jobFolder + "ground_truth"
+        data = io.imread(path)
+        indexes = np.unique(data)
+        loc = locator.BinaryLocator()
+        objects = dict()
 
-if not os.path.exists(inDir):
-    os.makedirs(inDir)
+        for i, index in enumerate(indexes):
+            if not index == 0:
+                mask = (data == index).astype(np.uint8) * 255
+                polygons = [polygon[0].buffer(2.0) for polygon in loc.locate(mask)]
+                polygon = cascaded_union(polygons).buffer(-2.0)
+                if not polygon.is_empty and polygon.area > 0:
+                    objects[index] = polygon
 
-if not os.path.exists(outDir):
-    os.makedirs(outDir)
+        print("Found {} polygons in this image {}.".format(len(objects), image.id))
 
-if not os.path.exists(groundTruthDir):
-    os.makedirs(groundTruthDir)
+        # upload
+        for index, polygon in objects.items():
+            annotation = add_annotation(image, polygon)
+            if annotation:
+                Property(annotation, "index", str(index)).save()
 
-# download the images
-download_images(inputImages, inDir)
+    cj.job.update(progress=80, statusComment="Computing metrics...")
 
-# call the image analysis workflow in the docker image
-shArgs = "data/in data/out "+radius+" "+threshold + ""
-job = conn.update_job_status(job, status = job.RUNNING, progress = 25, status_comment = "Launching workflow...")
-command = "docker run --rm -v "+jobFolder+":/fiji/data neubiaswg5/nucleisegmentation-imagej " + shArgs
-call(command,shell=True)	# waits for the subprocess to return
+    # TODO: compute metrics:
+    # in /out: output files {id}.tiff
+    # in /ground_truth: label files {id}.tiff
 
-job = conn.update_job_status(job, status = job.RUNNING, progress = 40, status_comment = "Extracting polygons...")
+    cj.job.update(progress=99, statusComment="Cleaning...")
+    for image in input_images:
+        os.remove(os.path.join(in_path, "{}.tif".format(image.id)))
 
-for image in inputImages:
-	file = str(image.id) + ".tif"
-	path = outDir + "/" + file
-	imageData = io.imread(path)
-
-  	indexes = np.unique(imageData)
-
-    	# locate polygons
-    	locobj = locator.BinaryLocator()
-    	objects = dict()
-
-    	for i, index in enumerate(indexes):
-		if index == 0:
-		    continue
-		mask = (imageData == index).astype(np.uint8) * 255
-		polygons = [polygon[0].buffer(2.0) for polygon in locobj.locate(mask)]
-		polygon = cascaded_union(polygons).buffer(-2.0)
-		if not polygon.is_empty and polygon.area > 0:
-		    objects[index] = polygon
-	 	
-	print("Found {} polygons in this images.".format(len(objects)))	
-	slide = conn.get_image_instance(image.id)
-	
-	# upload
-	for index, polygon in objects.items():
-	        annotation = _upload_annotation(conn, slide, polygon, label=None)
-	        if annotation:
-			conn.add_annotation_property(annotation.id, "index", str(index))
-	
-job = conn.update_job_status(job, status = job.TERMINATED, progress = 50, status_comment =  "Cleaning up..")
-
-# cleanup - remove the downloaded images 
-
-for image in inputImages:
-	file = str(image.id) + ".tif"
-	path = inDir + "/" + file
-	os.remove(path);
-
-job = conn.update_job_status(job, status = job.TERMINATED, progress = 60, status_comment =  "Downloading ground truth data..")
-
-# download ground truth data
-for image in masks:
-	url = arguments.cytomine_host+"/api/imageinstance/" + str(image.id) + "/download"
-	inputImageFilename = remove_label(image.filename, "_lbl")
-	head, tail = os.path.split(inputImageFilename)
-	filename = str(fileIDs[tail]) + ".tif"
-	conn.fetch_url_into_file(url, groundTruthDir+"/"+filename, True, True)
-
-job = conn.update_job_status(job, status = job.TERMINATED, progress = 100, status_comment =  "Finished Job..")
+    cj.job.update(status=Job.TERMINATED, progress=100, statusComment="Finished.")
