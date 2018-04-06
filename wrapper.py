@@ -4,13 +4,12 @@ import sys
 from argparse import ArgumentParser
 from subprocess import call
 
-import numpy as np
 from cytomine import CytomineJob
 from cytomine.models import Annotation, AnnotationTerm, Job, ImageInstanceCollection, Property
-from shapely.ops import cascaded_union
 from shapely.affinity import affine_transform
 from skimage import io
-from sldc import locator
+
+from mask_to_objects import mask_to_objects_2d
 
 
 def add_annotation(img_inst, polygon, label=None, proba=1.0):
@@ -34,6 +33,10 @@ def add_annotation(img_inst, polygon, label=None, proba=1.0):
 def makedirs(path):
     if not os.path.exists(path):
         os.makedirs(path)
+
+
+def relative_progress(current, _min, _max):
+    return int(_min + current * (_max - _min))
 
 
 parser = ArgumentParser(prog="IJSegmentClusteredNuclei", description="ImageJ workflow to segment clustered nuclei")
@@ -81,32 +84,28 @@ with CytomineJob(params.cytomine_host, params.cytomine_public_key, params.cytomi
         working_path, params.radius, params.threshold)
     call(command, shell=True)  # waits for the subprocess to return
 
-    cj.job.update(progress=60, statusComment="Extracting polygons...")
+    cj.job.update(progress=60, statusComment="Extracting and uploading polygons...")
+    for i, image in enumerate(input_images):
 
-    for image in input_images:
         file = "{}.tif".format(image.id)
         path = os.path.join(out_path, file)
-
         data = io.imread(path)
-        indexes = np.unique(data)
-        loc = locator.BinaryLocator()
-        objects = dict()
 
-        for i, index in enumerate(indexes):
-            if not index == 0:
-                mask = (data == index).astype(np.uint8) * 255
-                polygons = [polygon[0].buffer(2.0) for polygon in loc.locate(mask)]
-                polygon = cascaded_union(polygons).buffer(-2.0)
-                if not polygon.is_empty and polygon.area > 0:
-                    objects[index] = polygon
+        # extract objects
+        objects = mask_to_objects_2d(data)
 
         print("Found {} polygons in this image {}.".format(len(objects), image.id))
 
         # upload
-        for index, polygon in objects.items():
-            annotation = add_annotation(image, polygon)
+        for object in objects:
+            annotation = add_annotation(image, object.polygon)
             if annotation:
-                Property(annotation, "index", str(index)).save()
+                Property(annotation, "index", str(object.label)).save()
+
+        cj.job.update(
+            progress=relative_progress(float(i + 1) / len(input_images), _min=60, _max=80),
+            statusComment="Extracting and uploading polygons (image {}/{})...".format(i + 1, len(input_images))
+        )
 
     cj.job.update(progress=80, statusComment="Computing metrics...")
 
