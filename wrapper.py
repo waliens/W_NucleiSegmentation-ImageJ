@@ -64,7 +64,7 @@ with CytomineJob(params.cytomine_host, params.cytomine_public_key, params.cytomi
     gt_path = os.path.join(working_path, "ground_truth")
     makedirs(gt_path)
 
-    cj.job.update(progress=1, statusComment="Downloading images...")
+    cj.job.update(progress=1, statusComment="Downloading images (to {})...".format(in_path))
     image_instances = ImageInstanceCollection().fetch_with_filter("project", params.cytomine_id_project)
     input_images = [i for i in image_instances if gt_suffix not in i.originalFilename]
     gt_images = [i for i in image_instances if gt_suffix in i.originalFilename]
@@ -80,13 +80,10 @@ with CytomineJob(params.cytomine_host, params.cytomine_public_key, params.cytomi
 
     # call the image analysis workflow in the docker image
     cj.job.update(progress=25, statusComment="Launching workflow...")
-    command = "docker run --rm -v {}:/fiji/data neubiaswg5/nucleisegmentation-imagej data/in data/out {} {}".format(
-        working_path, params.radius, params.threshold)
+    command = "bash run.sh data/in data/out {} {}".format(params.radius, params.threshold)
     call(command, shell=True)  # waits for the subprocess to return
 
-    cj.job.update(progress=60, statusComment="Extracting and uploading polygons...")
-    for i, image in enumerate(input_images):
-
+    for image in cj.monitor(input_images, start=60, end=80, period=0.1, prefix="Extracting and uploading polygons from masks"):
         file = "{}.tif".format(image.id)
         path = os.path.join(out_path, file)
         data = io.imread(path)
@@ -101,11 +98,6 @@ with CytomineJob(params.cytomine_host, params.cytomine_public_key, params.cytomi
             annotation = add_annotation(image, object.polygon)
             if annotation:
                 Property(annotation, "index", str(object.label)).save()
-
-        cj.job.update(
-            progress=relative_progress(float(i + 1) / len(input_images), _min=60, _max=80),
-            statusComment="Extracting and uploading polygons (image {}/{})...".format(i + 1, len(input_images))
-        )
 
     cj.job.update(progress=80, statusComment="Computing metrics...")
 
