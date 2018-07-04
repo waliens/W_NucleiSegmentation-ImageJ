@@ -220,15 +220,16 @@ def neighbour_pixels(x, y):
 
 
 def mask_to_objects_2d(mask, background=0, offset=None):
-    """
+    """Convert 2D (binary or label) mask to polygons.
+
     Parameters
     ----------
     mask: ndarray
-        Mask array (not modified)
+        2D mask array. Expected shape: (height, width).
     background: int
-        Value used for encoding background pixels
+        Value used for encoding background pixels.
     offset: tuple (optional, default: None)
-        (x, y) coordinate offset to apply to all the extracted polygon.
+        (x, y) coordinate offset to apply to all the extracted polygons.
 
     Returns
     -------
@@ -238,6 +239,7 @@ def mask_to_objects_2d(mask, background=0, offset=None):
     Notes
     -----
     Adjacent but distinct polygons must be separated by at least one line of background (e.g. value 0) pixels.
+    The mask array is not modified by the function.
     """
     if mask.ndim != 2:
         raise ValueError("Cannot handle image with ndim different from 2 ({} dim. given).".format(mask.ndim))
@@ -253,27 +255,27 @@ def mask_to_objects_2d(mask, background=0, offset=None):
     return objects
 
 
-def mask_to_objects_3d(mask, background=0, offset=None, assume_unique_labels=False):
-    """Extract objects from the given 3D-mask. Each object is sliced across the last dimension of the mask.
+def mask_to_objects_3d(mask, background=0, offset=None, assume_unique_labels=False, time=False):
+    """Convert a 3D or 2D+t (binary or label) mask to polygon slices.
 
     Parameters
-
     ----------
     mask: ndarray
-        A 3D mask
+        3D mask array. Expected shape: (width, height, depth|time).
     background: int
-        The value used for encoding background in the mask
+        Value used for encoding background pixels.
     offset: tuple (optional, default (0, 0, 0))
-        A (x, y, z) offset to apply to all the detected objects
+        A (x, y, z) offset to apply to all the detected objects.
     assume_unique_labels: bool
         True if each objects is encoded with a unique label in the mask.
-
+    time: bool
+        True if the image is a 2D+t volume, false if it is a 3D volume.
     Returns
     -------
     objects: list
         Lists all the extracted objects. Each object is provided as a list of slices (i.e. python object of type
-        ObjectSlice). A slice consists of a 2D polygon, a label and the depth at which it was taken. The field time
-        of ObjectSlice is set to None.
+        ObjectSlice). A slice consists of a 2D polygon, a label and the depth or time at which it was taken.
+        If time is True, the field depth of ObjectSlice is set to None. Otherwise, the field time is set to None.
     """
     if mask.ndim != 3:
         raise ValueError("Cannot handle image with ndim different from 3 ({} dim. given).".format(mask.ndim))
@@ -290,24 +292,27 @@ def mask_to_objects_3d(mask, background=0, offset=None, assume_unique_labels=Fal
             x, y = get_polygon_inner_point(slice_object.polygon)
             label = slice_object.label
             objects[label] = objects.get(label, []) + [
-                ObjectSlice(polygon=slice_object.polygon, label=mask[y, x, d], depth=d + offset_z)
+                ObjectSlice(
+                    polygon=slice_object.polygon,
+                    label=mask[y, x, d],
+                    depth=d + offset_z if not time else None,
+                    time=d + offset_z if time else None
+                )
             ]
     return objects.values()
 
 
 def mask_to_objects_3dt(mask, background=0, offset=None):
-    """Extract objects from the given 3D-mask. Time should be the first dimension and, at each time step, objects
-    are sliced across the last dimension of the mask. Each object should be encoded with the same label along time.
+    """Convert a 3D+t label mask to polygon slices.
 
     Parameters
-
     ----------
     mask: ndarray
-        A 4D mask (time, height, width, depth)
+        4D mask array. Expected shape: (time, height, width, depth).
     background: int
-        The value used for encoding background in the mask
+        Value used for encoding background pixels.
     offset: tuple (optional, default (0, 0, 0, 0))
-        A (t, x, y, z) offset to apply to all the detected objects
+        A (t, x, y, z) offset to apply to all the detected objects.
 
     Returns
     -------
@@ -316,10 +321,11 @@ def mask_to_objects_3dt(mask, background=0, offset=None):
         timestep. The second level lists all the timesteps at which an object appears and the first level lists all the
         objects.
         E.g.:
-            - P_i_j_k denotes the polygon in the kth slice at the jth time for object i
-            - t_i_j denotes the jth timestep for object i
-            - s_i_j_k denotes the kth slice of object i at the jth time
-            - label_i denotes the label of the object i
+        - P_i_j_k denotes the polygon in the kth slice at the jth time for object i
+        - t_i_j denotes the jth timestep for object i
+        - s_i_j_k denotes the kth slice of object i at the jth time
+        - label_i denotes the label of the object i
+
         [ # objects
             [ # timesteps (object 1)
                 [ # slices (object 1, timestep 1)
@@ -344,6 +350,10 @@ def mask_to_objects_3dt(mask, background=0, offset=None):
                 ...
             ]
         ]
+
+    Notes
+    -----
+    Each object should be encoded with the same label over time.
     """
     if mask.ndim != 4:
         raise ValueError("Cannot handle image with ndim different from 4 ({} dim. given).".format(mask.ndim))
@@ -352,7 +362,13 @@ def mask_to_objects_3dt(mask, background=0, offset=None):
     offset_t = offset[0]
     objects = dict()
     for t in range(duration):
-        time_objects = mask_to_objects_3d(mask, background=background, offset=offset_xyz, assume_unique_labels=True)
+        time_objects = mask_to_objects_3d(
+            mask,
+            background=background,
+            offset=offset_xyz,
+            assume_unique_labels=True,
+            time=False
+        )
         for time_slices in time_objects:
             label = time_slices[0].label
             slices_3dt = [  # transform type of objects to
