@@ -2,7 +2,7 @@ import logging
 import os
 import sys
 from argparse import ArgumentParser
-from subprocess import call
+from subprocess import call, PIPE
 
 from cytomine import CytomineJob
 from cytomine.models import Annotation, AnnotationTerm, Job, ImageInstanceCollection, Property
@@ -80,8 +80,8 @@ with CytomineJob(params.cytomine_host, params.cytomine_public_key, params.cytomi
 
     # call the image analysis workflow in the docker image
     cj.job.update(progress=25, statusComment="Launching workflow...")
-    command = "bash run.sh data/in data/out {} {}".format(params.radius, params.threshold)
-    call(command, shell=True)  # waits for the subprocess to return
+    command = "/bin/sh /app/run.sh /app/data/in /app/data/out {} {}".format(params.radius, params.threshold)
+    code = call(command, shell=True)  # waits for the subprocess to return
 
     for image in cj.monitor(input_images, start=60, end=80, period=0.1, prefix="Extracting and uploading polygons from masks"):
         file = "{}.tif".format(image.id)
