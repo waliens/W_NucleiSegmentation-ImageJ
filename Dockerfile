@@ -1,10 +1,16 @@
-FROM neubiaswg5/fiji-base:latest
+FROM neubiaswg5/fiji-base
 
-RUN cd plugins && wget -O imagescience.jar https://imagescience.org/meijering/software/download/imagescience.jar
-RUN cd plugins && wget -O FeatureJ_.jar https://imagescience.org/meijering/software/download/FeatureJ_.jar
+RUN cd /fiji/plugins && wget -O imagescience.jar https://imagescience.org/meijering/software/download/imagescience.jar
+RUN cd /fiji/plugins && wget -O FeatureJ_.jar https://imagescience.org/meijering/software/download/FeatureJ_.jar
 
-ADD macro.ijm /fiji/macros/macro.ijm                                           
-ADD run.sh /fiji/run.sh
-RUN cd /fiji && chmod a+x run.sh
+RUN pip install scikit-image
 
-ENTRYPOINT ["/bin/sh", "/fiji/run.sh"]
+ADD macro.ijm /fiji/macros/macro.ijm
+ADD run.sh /app/run.sh
+ADD wrapper.py /app/wrapper.py
+# TODO move into a proper AnnotationImporter module
+ADD mask_to_objects.py /app/mask_to_objects.py
+
+RUN cd /app && chmod a+x run.sh
+
+ENTRYPOINT ["python", "/app/wrapper.py"]
