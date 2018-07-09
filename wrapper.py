@@ -3,38 +3,11 @@ import sys
 from subprocess import call
 
 from cytomine import CytomineJob
-from cytomine.models import Annotation, AnnotationTerm, Job, ImageInstanceCollection, Property
+from cytomine.models import Annotation, Job, ImageInstanceCollection, AnnotationCollection
 from shapely.affinity import affine_transform
 from skimage import io
 
 from mask_to_objects import mask_to_objects_2d
-
-
-def add_annotation(img_inst, polygon, label=None, proba=1.0):
-    image_id = img_inst.id
-    # Transform in cartesian coordinates
-    polygon = affine_transform(polygon, [1, 0, 0, -1, 0, img_inst.height])
-
-    annotation = Annotation(polygon.wkt, image_id).save()
-    if label is not None and annotation is not None:
-        annotation_term = AnnotationTerm()
-        annotation_term.annotation = annotation.id
-        annotation_term.annotationIdent = annotation.id
-        annotation_term.userannotation = annotation.id
-        annotation_term.term = label
-        annotation_term.expectedTerm = label
-        annotation_term.rate = proba
-        annotation_term.save()
-    return annotation
-
-
-def makedirs(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-
-def relative_progress(current, _min, _max):
-    return int(_min + current * (_max - _min))
 
 
 def main(argv):
@@ -76,8 +49,9 @@ def main(argv):
 
         # 3. Call the image analysis workflow using the run script
         cj.job.update(progress=25, statusComment="Launching workflow...")
-        command = "/bin/sh /app/run.sh {} {} {} {}".format(in_path, out_path, cj.parameters.radius, cj.parameters.threshold)
-        return_code = call(command, shell=True)  # waits for the subprocess to return
+        command = "/usr/bin/xvfb-run java -Xmx6000m -cp /fiji/jars/ij-1.52d.jar ij.ImageJ --headless --console " \
+                  "-macro macro.ijm \"input={}, output={}, radius={}, threshold={}\"".format(in_path, out_path, cj.parameters.ij_radius, cj.parameters.ij_threshold)
+        return_code = call(command, shell=True, cwd="/fiji")  # waits for the subprocess to return
 
         if return_code != 0:
             err_desc = "Failed to execute the ImageJ macro (return code: {})".format(return_code)
@@ -97,14 +71,15 @@ def main(argv):
             print("Found {} polygons in this image {}.".format(len(slices), image.id))
 
             # upload
+            collection = AnnotationCollection()
             for obj_slice in slices:
-                annotation = Annotation(
-                    location=obj_slice.polygon.wkt, id_image=image.id,
-                    id_project=cj.parameters.cytomine_id_project
-                )
-                annotation.save()
-                if annotation:
-                    Property(annotation, "index", str(obj_slice.label)).save()
+                collection.append(Annotation(
+                    location=affine_transform(obj_slice.polygon, [1, 0, 0, -1, 0, image.height]).wkt,
+                    id_image=image.id, id_project=cj.parameters.cytomine_id_project, property=[
+                        {"key": "index", "value": str(obj_slice.label)}
+                    ]
+                ))
+            collection.save()
 
         # 5. Compute the metrics
         cj.job.update(progress=80, statusComment="Computing metrics...")
