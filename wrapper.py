@@ -7,7 +7,7 @@ from cytomine.models import Annotation, Job, ImageInstanceCollection, Annotation
 from shapely.affinity import affine_transform
 from skimage import io
 
-from mask_to_objects import mask_to_objects_2d
+from annotation_exporter import mask_to_objects_2d
 
 
 def main(argv):
