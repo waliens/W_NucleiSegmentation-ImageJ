@@ -3,11 +3,12 @@ import sys
 from subprocess import call
 
 from cytomine import CytomineJob
-from cytomine.models import Annotation, Job, ImageInstanceCollection, AnnotationCollection
+from cytomine.models import Annotation, Job, ImageInstanceCollection, AnnotationCollection, Property
 from shapely.affinity import affine_transform
 from skimage import io
 
 from annotation_exporter import mask_to_objects_2d
+from neubiaswg5.metrics import computemetrics_batch
 
 
 def main(argv):
@@ -19,18 +20,21 @@ def main(argv):
         # - WORKING_PATH/in: input images
         # - WORKING_PATH/out: output images
         # - WORKING_PATH/ground_truth: ground truth images
+        # - WORKING_PATH/tmp: temporary path
         base_path = "{}".format(os.getenv("HOME"))
         gt_suffix = "_lbl"
         working_path = os.path.join(base_path, str(cj.job.id))
         in_path = os.path.join(working_path, "in")
         out_path = os.path.join(working_path, "out")
         gt_path = os.path.join(working_path, "ground_truth")
+        tmp_path = os.path.join(working_path, "tmp")
 
         if not os.path.exists(working_path):
             os.makedirs(working_path)
             os.makedirs(in_path)
             os.makedirs(out_path)
             os.makedirs(gt_path)
+            os.makedirs(tmp_path)
 
         # 2. Download the images (first input, then ground truth image)
         cj.job.update(progress=1, statusComment="Downloading images (to {})...".format(in_path))
@@ -81,17 +85,21 @@ def main(argv):
                 ))
             collection.save()
 
-        # 5. Compute the metrics
-        cj.job.update(progress=80, statusComment="Computing metrics...")
+        # 5. Compute and upload the metrics
+        cj.job.update(progress=80, statusComment="Computing and uploading metrics...")
+        outfiles, reffiles = zip(*[
+            (os.path.join(out_path, "{}.tif".format(image.id)),
+             os.path.join(gt_path, "{}.tif".format(image.id)))
+            for image in input_images
+        ])
 
-        # TODO: compute metrics:
-        # in /out: output files {id}.tiff
-        # in /ground_truth: label files {id}.tiff
+        results = computemetrics_batch(outfiles, reffiles, "ObjSeg", tmp_path)
 
-        cj.job.update(progress=99, statusComment="Cleaning...")
-        for image in input_images:
-            os.remove(os.path.join(in_path, "{}.tif".format(image.id)))
+        for key, value in results.items():
+            Property(cj.job, key=key, value=str(value)).save()
+        Property(cj.job, key="IMAGE_INSTANCES", value=str([im.id for im in input_images])).save()
 
+        # 6. End
         cj.job.update(status=Job.TERMINATED, progress=100, statusComment="Finished.")
 
 
