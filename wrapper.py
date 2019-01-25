@@ -13,10 +13,11 @@ def main(argv):
         nj.job.update(status=Job.RUNNING, progress=0, statusComment="Initialisation...")
 
         problem_cls = CLASS_OBJSEG
+        is_2d = True
 
         # 1. Create working directories on the machine
         # 2. Download the images
-        in_images, gt_images, in_path, gt_path, out_path, tmp_path = prepare_data(problem_cls, nj, is_2d=True, **nj.flags)
+        in_images, gt_images, in_path, gt_path, out_path, tmp_path = prepare_data(problem_cls, nj, is_2d=is_2d, **nj.flags)
 
         # 3. Call the image analysis workflow using the run script
         nj.job.update(progress=25, statusComment="Launching workflow...")
@@ -30,7 +31,7 @@ def main(argv):
             raise ValueError(err_desc)
 
         # 4. Upload the annotation and labels to Cytomine
-        upload_data(problem_cls, nj, in_images, out_path, **nj.flags, monitor_params={
+        upload_data(problem_cls, nj, in_images, out_path, **nj.flags, is_2d=is_2d, monitor_params={
             "start": 60, "end": 90, "period": 0.1
         })
 
