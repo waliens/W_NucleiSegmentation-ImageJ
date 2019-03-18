@@ -33,7 +33,7 @@ RUN rm fiji-linux64-20170530.zip
 # ---------------------------------------------------------------------------------------------------------------------
 # Install Neubias-W5-Utilities (annotation exporter, compute metrics, helpers,...)
 RUN git clone https://github.com/Neubias-WG5/neubiaswg5-utilities.git
-RUN cd /neubiaswg5-utilities/ && git checkout tags/v0.6.3 && pip install .
+RUN cd /neubiaswg5-utilities/ && git checkout tags/v0.6.2 && pip install .
 
 # install utilities binaries
 RUN chmod +x /neubiaswg5-utilities/bin/*
