@@ -31,26 +31,9 @@ RUN mkdir -p /fiji/data
 RUN rm fiji-linux64-20170530.zip
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Install Fiji plugings
-
-# Image sciences
-RUN cd /fiji/plugins && \
-wget -O imagescience.jar \
-https://imagescience.org/meijering/software/download/imagescience.jar
-
-# FeatureJ
-RUN cd /fiji/plugins && \
-wget -O FeatureJ_.jar \
-https://imagescience.org/meijering/software/download/FeatureJ_.jar
-
-# MorphoLibJ
-RUN cd /fiji/plugins && \
-wget https://github.com/ijpb/MorphoLibJ/releases/download/v1.3.6/MorphoLibJ_-1.3.6.jar
-
-# ---------------------------------------------------------------------------------------------------------------------
 # Install Neubias-W5-Utilities (annotation exporter, compute metrics, helpers,...)
-RUN git clone https://github.com/Neubias-WG5/neubiaswg5-utilities.git && \
-        cd /neubiaswg5-utilities/ && git checkout tags/v0.6.1 && pip install .
+RUN git clone https://github.com/Neubias-WG5/neubiaswg5-utilities.git
+RUN cd /neubiaswg5-utilities/ && git checkout tags/v0.6.2 && pip install .
 
 # install utilities binaries
 RUN chmod +x /neubiaswg5-utilities/bin/*
@@ -58,6 +41,11 @@ RUN cp /neubiaswg5-utilities/bin/* /usr/bin/
 
 # cleaning
 RUN rm -r /neubiaswg5-utilities
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Install Fiji plugins
+RUN cd /fiji/plugins && wget -O imagescience.jar https://imagescience.org/meijering/software/download/imagescience.jar
+RUN cd /fiji/plugins && wget -O FeatureJ_.jar https://imagescience.org/meijering/software/download/FeatureJ_.jar
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Install Macro
