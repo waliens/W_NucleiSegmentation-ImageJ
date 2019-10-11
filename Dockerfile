@@ -1,4 +1,5 @@
-FROM python:3.6
+# python:3.6.9-stretch
+FROM python@sha256:62e7985e22c4265d8f656295aca9d9307e83d6a5fa9ae673a68d60fc43d41158
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Install Java
@@ -7,7 +8,7 @@ RUN apt-get update && apt-get install openjdk-8-jdk -y && apt-get clean
 # ---------------------------------------------------------------------------------------------------------------------
 # Install Cytomine python client
 RUN git clone https://github.com/cytomine-uliege/Cytomine-python-client.git
-RUN cd /Cytomine-python-client && git checkout tags/v2.2.0 && pip install .
+RUN cd /Cytomine-python-client && git checkout tags/v2.3.0.poc && pip install .
 RUN rm -r /Cytomine-python-client
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -33,7 +34,7 @@ RUN rm fiji-linux64-20170530.zip
 # ---------------------------------------------------------------------------------------------------------------------
 # Install Neubias-W5-Utilities (annotation exporter, compute metrics, helpers,...)
 RUN git clone https://github.com/Neubias-WG5/neubiaswg5-utilities.git
-RUN cd /neubiaswg5-utilities/ && git checkout tags/v0.6.2 && pip install .
+RUN cd /neubiaswg5-utilities/ && git checkout tags/v0.7.0.poc && pip install .
 
 # install utilities binaries
 RUN chmod +x /neubiaswg5-utilities/bin/*
