@@ -34,7 +34,7 @@ RUN rm fiji-linux64-20170530.zip
 # Install Neubias-W5-Utilities (annotation exporter, compute metrics, helpers,...)
 RUN apt-get update && apt-get install libgeos-dev -y && apt-get clean
 RUN git clone https://github.com/Neubias-WG5/biaflows-utilities.git && \
-    cd /biaflows-utilities/ && git checkout tags/v0.9.0-alpha.5 && pip install .
+    cd /biaflows-utilities/ && git checkout tags/v0.9.0 && pip install .
 
 # install utilities binaries
 RUN chmod +x /biaflows-utilities/bin/*
